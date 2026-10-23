@@ -1,0 +1,18 @@
+1. Montador (componentes/montador)
+Transforma o texto assembly em números para a memória. É independente do resto: entra texto, sai uma lista de palavras de 16 bits (ou erros com número da linha). Dá para fazer e testar sozinho desde o primeiro dia. Só precisa saber a tabela de instruções (opcodes) do MIC-1.
+
+2. Via de dados e controle (ALU, shifter, MIR, MPC, memória de controle)
+São os “blocos de hardware” que fazem contas e decidem a próxima microinstrução. Cada bloco é uma classe pequena com entradas e saídas bem definidas (a ALU recebe A, B e a operação, e devolve resultado e flags N e Z). É o trabalho mais próximo do livro de Tanenbaum.
+
+3. Cpu e subciclos
+É quem junta as peças da pessoa 2 e executa os 4 subciclos em ordem. Também escreve o get_state(), que reúne tudo o que a interface precisa saber. É a ponte entre o núcleo e o resto. Por isso as pessoas 2 e 3 precisam trabalhar bem juntas: uma entrega as peças, a outra monta o conjunto.
+
+4. Memória e caches
+Memória principal, cache de instruções, cache de dados e o controlador que fica entre o MAR/MBR e a memória. Também é bastante independente: dá para testar a cache sozinha, simulando uma sequência de endereços e conferindo hits e misses. É a parte que mais pede decisões de projeto (tamanho, associatividade, política de substituição).
+
+5. Diagrama no Canvas
+Desenha o datapath e destaca, a cada subciclo, quais componentes e barramentos estão ativos. Ela não precisa do núcleo pronto: trabalha com um get_state() falso, só para ver as cores mudando. É a parte mais visível do projeto, e a que o professor mais vai olhar.
+
+6. Interface geral, VM, testes e documentação
+Janela principal, editor de código, botões (Montar, Step, Run, Pause, Reset), painéis de registradores, memória e cache, o laço com after() e a velocidade. Também cuida da VM do VirtualBox, do relatório e dos programas de exemplo. É um papel mais amplo, mas as tarefas pesadas (VM e documentação) ficam para o fim, quando as outras já estão encaminhadas.
+
