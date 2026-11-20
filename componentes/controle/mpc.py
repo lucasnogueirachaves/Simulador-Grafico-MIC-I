@@ -1,6 +1,6 @@
 from via_de_dados.registradores.registrador import Registrador
 
-class MicroprogramCounter(Registrador):
-    def __init__(self, identificador):
-        super().__init__(identificador, 8)
+class Mpc(Registrador):
+    def __init__(self):
+        super().__init__("mpc", 8)
     
