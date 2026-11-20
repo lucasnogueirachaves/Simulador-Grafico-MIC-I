@@ -18,14 +18,22 @@ class MemoriaDeControle:
                 self.escrever(i, palavra)
                 
     def carregar_microprograma_arquivo(self, caminho: str):
+        posicao = 0
         with open(caminho, "r") as f:
-            linhas = [linha.strip() for linha in f]
-            for i, linha in enumerate(linhas):
-                if i >= self.capacidade:
+            for linha in f:
+                linha_limpa = linha.split("#")[0].strip()
+                
+                if not linha_limpa:
+                    continue
+                
+                if posicao >= self.capacidade:
                     break
-                if linha[0] == "0x" or linha[0] == "0X":
-                    palavra = int(linha, 16)
-                else: 
-                    palavra = int(linha, 2)
-                self.escrever(i, palavra)
-    
+                
+                if linha_limpa.startswith("0x") or linha_limpa.startswith("0X"):
+                    palavra = int(linha_limpa, 16)
+                
+                else:
+                    palavra = int(linha_limpa, 2)
+                
+                self.escrever(posicao, palavra)
+                posicao += 1    
