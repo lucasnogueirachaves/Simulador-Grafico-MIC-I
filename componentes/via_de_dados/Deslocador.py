@@ -10,10 +10,10 @@ class Deslocador:
     def execucao(self, valor, sh):
         if sh == 0:
             resultado = valor
-        elif sh == 1: #esquerda
-            resultado = valor << 1
-        elif sh == 2: #direita
+        elif sh == 1: #direita
             resultado = valor >> 1
+        elif sh == 2: #esquerda
+            resultado = valor << 1
 
         else:
             raise ValueError("Operação de deslocamento inválida.")
