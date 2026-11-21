@@ -1,4 +1,4 @@
-from componentes.via_de_dados.ULA import limitar_16_bits
+from componentes.via_de_dados.ula import limitar_16_bits
 
 class Deslocador:
 

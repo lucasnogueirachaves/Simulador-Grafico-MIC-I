@@ -1,5 +1,5 @@
-from .via_de_dados.ULA import ula
-from .via_de_dados.Deslocador import Deslocador
+from .via_de_dados.ula import ula
+from .via_de_dados.deslocador import Deslocador
 from .via_de_dados.mar import Mar
 from .via_de_dados.mbr import Mbr
 from .via_de_dados.registradores.banco_registradores import BancoRegistradores
