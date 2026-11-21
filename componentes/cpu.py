@@ -1,5 +1,5 @@
-from .via_de_dados.ula import ula
-from .via_de_dados.deslocador import Deslocador
+from .via_de_dados.ULA import ula
+from .via_de_dados.Deslocador import Deslocador
 from .via_de_dados.mar import Mar
 from .via_de_dados.mbr import Mbr
 from .via_de_dados.registradores.banco_registradores import BancoRegistradores
@@ -80,6 +80,7 @@ class CPU:
         self.flag_z = 0
         self.componentes_ativos = []
         self.microinstrucoes_executadas = 0
+        self._rd_anterior = False
         self.deslocador.entrada = 0
         self.deslocador.resultado = 0
         self.deslocador.sh = 0
@@ -135,8 +136,13 @@ class CPU:
         # Modelo funcional: a memória responde imediatamente aos comandos.
         # A distinção de latência/cache poderá ser acrescentada posteriormente.
         if s["RD"]:
-            self.memoria.ler()
+            # o microprograma repete o rd em microinstruções seguidas para uma única
+            # leitura: só o primeiro rd da sequência acessa a memória/cache
+            if not self._rd_anterior:
+                # as microinstruções 0 e 1 são a busca de instrução
+                self.memoria.ler(instrucao=(self.mpc in (0, 1)))
             self.componentes_ativos.append("RD")
+        self._rd_anterior = bool(s["RD"])
         if s["WR"]:
             self.memoria.escrever()
             self.componentes_ativos.append("WR")
