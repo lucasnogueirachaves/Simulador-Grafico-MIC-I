@@ -84,7 +84,8 @@ def monta_endereco(linhas, rotulos, total):
                         raise ErroDeMontagem(numero, f"nome inválido '{operandos}'")
                     if instrucao in desvios:
                         #operando e um rotulo
-                        if operandos not in rotulos: raise ...
+                        if operandos not in rotulos:
+                            raise ErroDeMontagem(numero, f"rótulo '{operandos}' não existe")
                         operando = rotulos[operandos]
                     else:
                         #operando e uma variavel
