@@ -1,4 +1,4 @@
-from via_de_dados.registradores.registrador import Registrador
+from componentes.via_de_dados.registradores.registrador import Registrador
 
 class Mpc(Registrador):
     def __init__(self):

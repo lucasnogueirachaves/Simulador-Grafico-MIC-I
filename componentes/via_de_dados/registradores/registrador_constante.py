@@ -1,4 +1,4 @@
-from registrador import Registrador
+from .registrador import Registrador
 
 class RegistradorConstante(Registrador):
     

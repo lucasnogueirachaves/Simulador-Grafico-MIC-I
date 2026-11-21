@@ -1,4 +1,4 @@
-from registradores.registrador import Registrador
+from .registradores.registrador import Registrador
 
 class Mbr(Registrador):
     

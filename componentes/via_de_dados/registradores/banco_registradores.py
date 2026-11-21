@@ -1,5 +1,5 @@
-from registrador import Registrador
-from registrador_constante import RegistradorConstante
+from .registrador import Registrador
+from .registrador_constante import RegistradorConstante
 
 class BancoRegistradores:
     def __init__(self):
