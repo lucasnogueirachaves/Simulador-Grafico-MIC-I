@@ -88,6 +88,7 @@ class CPU:
         self.mbr.resetar()
         if limpar_memoria:
             self.memoria.reset()
+            self.fim_do_programa = None     # a RAM foi apagada: não há programa carregado
         self._mpc.resetar()
         self._mir.resetar()
         self.latch_a.carregar(0)
@@ -107,6 +108,24 @@ class CPU:
         self.deslocador.entrada = 0
         self.deslocador.resultado = 0
         self.deslocador.sh = 0
+
+    def carregar_programa(self, palavras):
+        """Escreve o programa a partir do endereço 0 e marca onde ele termina.
+
+        Quando o PC passar da última instrução, a CPU para (halted = True).
+        Um programa vazio já começa parado.
+        """
+        for endereco, palavra in enumerate(palavras):
+            self.memoria.memoria.escrever(endereco, palavra)
+        self.fim_do_programa = len(palavras)
+        self.halted = len(palavras) == 0
+
+    def _verificar_fim_do_programa(self):
+        """Para a CPU ao terminar uma instrução cujo PC já passou do programa."""
+        terminou_instrucao = self.subciclo == 0 and self.mpc == 0
+        if (terminou_instrucao and self.fim_do_programa is not None
+                and self.registradores.registradores[0].valor >= self.fim_do_programa):
+            self.halted = True
 
     def buscar_microinstrucao(self):
         # Subciclo 0: acesso à memória de controle e carregamento do MIR.
@@ -185,6 +204,7 @@ class CPU:
         )
         etapas[self.subciclo]()
         self.subciclo = (self.subciclo + 1) % 4
+        self._verificar_fim_do_programa()
 
     def executar_ciclo(self):
         """Conclui a microinstrução atual (não necessariamente 4 passos)."""

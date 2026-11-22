@@ -19,6 +19,7 @@ class Mic1SimulatorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # núcleo do simulador
         controle = MemoriaDeControle()
         controle.carregar_microprograma_arquivo(str(MICROPROGRAMA))
         self.cpu = CPU(controle)
@@ -101,6 +102,7 @@ class Mic1SimulatorApp(ctk.CTk):
         self.cache_labels = []
         self.atualizar_interface_cache()
 
+        # monta o programa do editor e preenche a tela
         self.carregar_programa()
 
     def atualizar_interface_regs(self):
@@ -163,7 +165,11 @@ class Mic1SimulatorApp(ctk.CTk):
     def atualizar_tela(self):
         self.atualizar_interface_regs()
         self.atualizar_valores_cache()
-        self.label_stats.configure(text=f"Ciclos: {self.ciclos}  |  Instruções: {self.instrucoes}")
+        texto = f"Ciclos: {self.ciclos}  |  Instruções: {self.instrucoes}"
+        if self.cpu.halted:
+            texto += "  |  FIM"
+        self.label_stats.configure(text=texto)
+        self.btn_passo.configure(state="disabled" if self.cpu.halted else "normal")
 
     def carregar_programa(self):
         """Monta o texto do editor, carrega na memória e zera a CPU."""
@@ -175,8 +181,7 @@ class Mic1SimulatorApp(ctk.CTk):
             return
 
         self.cpu.reset()
-        for endereco, palavra in enumerate(palavras):
-            self.cpu.memoria.memoria.escrever(endereco, palavra)
+        self.cpu.carregar_programa(palavras)
         self.ciclos = 0
         self.instrucoes = 0
 
@@ -197,6 +202,8 @@ class Mic1SimulatorApp(ctk.CTk):
         self.atualizar_tela()
 
     def executar_passo(self):
+        if self.cpu.halted:
+            return
         self.cpu.executar_subciclo()
         if self.cpu.subciclo == 0:          # fechou uma microinstrução
             self.ciclos += 1
