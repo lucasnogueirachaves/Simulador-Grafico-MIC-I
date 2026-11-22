@@ -4,6 +4,11 @@ from .via_de_dados.mar import Mar
 from .via_de_dados.mbr import Mbr
 from .via_de_dados.registradores.banco_registradores import BancoRegistradores
 from .memoria.controlador_memoria import ControladorMemoria
+from .controle.mir import Mir
+from .controle.mpc import Mpc
+from .controle.mmux import Mmux
+from .via_de_dados.amux import Amux
+from .via_de_dados.latches import Latchs
 
 """correções relacionadas a conexão com outros arquivos do projeto ainda precisam ser feitas,
    mas a lógica da cpu está estruturada com exceção de algumas funções :)"""
@@ -37,7 +42,24 @@ class CPU:
         self.mbr = Mbr()
         self.deslocador = Deslocador()
         self.memoria = ControladorMemoria(self.mar, self.mbr)
+        # Componentes do controle e da via de dados que antes eram feitos "na mão"
+        self._mpc = Mpc()
+        self._mir = Mir()
+        self.mmux = Mmux()
+        self.amux = Amux()
+        self.latch_a = Latchs()
+        self.latch_b = Latchs()
         self.reset()
+
+    @property
+    def mpc(self):
+        """Valor do MPC (inteiro), como antes."""
+        return self._mpc.valor
+
+    @property
+    def mir(self):
+        """Valor do MIR (inteiro de 32 bits), como antes."""
+        return self._mir.valor
 
     def conectar_controle(self, controle):
         """Conecta a futura memória de controle sem recriar a CPU."""
@@ -66,8 +88,10 @@ class CPU:
         self.mbr.resetar()
         if limpar_memoria:
             self.memoria.reset()
-        self.mpc = 0
-        self.mir = 0
+        self._mpc.resetar()
+        self._mir.resetar()
+        self.latch_a.carregar(0)
+        self.latch_b.carregar(0)
         self.sinais = None
         self.subciclo = 0
         self.halted = False
@@ -80,14 +104,13 @@ class CPU:
         self.flag_z = 0
         self.componentes_ativos = []
         self.microinstrucoes_executadas = 0
-        self._rd_anterior = False
         self.deslocador.entrada = 0
         self.deslocador.resultado = 0
         self.deslocador.sh = 0
 
     def buscar_microinstrucao(self):
         # Subciclo 0: acesso à memória de controle e carregamento do MIR.
-        self.mir = self._ler_memoria_controle(self.mpc)
+        self._mir.gravar(self._ler_memoria_controle(self.mpc))
         self.sinais = decodificar_microinstrucao(self.mir)
         self.componentes_ativos = ["MPC", "MIR", "MEMORIA_CONTROLE"]
 
@@ -96,9 +119,11 @@ class CPU:
         s = self.sinais
         if s is None:
             raise RuntimeError("Nenhuma microinstrução foi carregada.")
-        self.barramento_a = self.registradores.ler(s["A"])
-        self.barramento_b = self.registradores.ler(s["B"])
-        self.entrada_ula_a = self.mbr.ler() if s["AMUX"] else self.barramento_a
+        self.latch_a.carregar(self.registradores.ler(s["A"]))
+        self.latch_b.carregar(self.registradores.ler(s["B"]))
+        self.barramento_a = self.latch_a.ler()
+        self.barramento_b = self.latch_b.ler()
+        self.entrada_ula_a = self.amux.selecionar(s["AMUX"], self.latch_a.ler(), self.mbr.valor)
         self.componentes_ativos = ["BARRAMENTO_A", "BARRAMENTO_B", "AMUX"]
 
     def executar_ula(self):
@@ -136,22 +161,15 @@ class CPU:
         # Modelo funcional: a memória responde imediatamente aos comandos.
         # A distinção de latência/cache poderá ser acrescentada posteriormente.
         if s["RD"]:
-            # o microprograma repete o rd em microinstruções seguidas para uma única
-            # leitura: só o primeiro rd da sequência acessa a memória/cache
-            if not self._rd_anterior:
-                # as microinstruções 0 e 1 são a busca de instrução
-                self.memoria.ler(instrucao=(self.mpc in (0, 1)))
+            self.memoria.ler()
             self.componentes_ativos.append("RD")
-        self._rd_anterior = bool(s["RD"])
         if s["WR"]:
             self.memoria.escrever()
             self.componentes_ativos.append("WR")
 
-        # COND: 0 sequencial, 1 N, 2 Z, 3 incondicional.
-        cond = s["COND"]
-        desviar = (cond == 3 or (cond == 1 and self.flag_n == 1)
-                   or (cond == 2 and self.flag_z == 1))
-        self.mpc = s["ADDR"] if desviar else (self.mpc + 1) & 0xFF
+        # Próximo MPC: o Mmux decide entre MPC + 1 e o campo ADDR (COND, N e Z)
+        self._mpc.gravar(self.mmux.calcular_proximo_mpc(
+            self.mpc, s["COND"], s["ADDR"], self.flag_n == 1, self.flag_z == 1))
         self.microinstrucoes_executadas += 1
         self.componentes_ativos.append("MPC")
 
