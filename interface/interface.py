@@ -93,7 +93,7 @@ class Mic1SimulatorApp(ctk.CTk):
         self.cache_container.grid_columnconfigure(0, weight=1)
         self.cache_container.grid_rowconfigure(1, weight=1)
 
-        self.label_cache = ctk.CTkLabel(self.cache_container, text="MEMÓRIA PRINCIPAL / CACHE (MAPEAMENTO DIRETO)", font=("Arial", 13, "bold"))
+        self.label_cache = ctk.CTkLabel(self.cache_container, text="MEMÓRIA CACHE (MAPEAMENTO DIRETO)", font=("Arial", 13, "bold"))
         self.label_cache.pack(padx=15, pady=(10, 5), anchor="w")
 
         self.cache_grid_frame = ctk.CTkFrame(self.cache_container, fg_color="transparent")
