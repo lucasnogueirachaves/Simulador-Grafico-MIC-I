@@ -1,3 +1,8 @@
+"""Interface didática para a CPU MIC-1.
+
+Execute da raiz do repositório: python -m interface.interface
+A janela consulta snapshots da CPU; não reimplementa seus componentes.
+"""
 from pathlib import Path
 from tkinter import messagebox
 
@@ -16,345 +21,251 @@ ctk.set_default_color_theme("blue")
 
 
 class Mic1SimulatorApp(ctk.CTk):
+    """Painel de observação e execução passo a passo do MIC-1."""
+
+    COR_ATIVA = "#237F6D"
+    COR_INATIVA = "#303946"
+    FASES = ("Busca MIR", "Leitura A/B", "ULA e deslocador", "Escrita / MPC")
+
     def __init__(self):
         super().__init__()
-
         controle = MemoriaDeControle()
-        if MICROPROGRAMA.exists() and callable(getattr(controle, "carregar_microprograma_arquivo", None)):
-            controle.carregar_microprograma_arquivo(str(MICROPROGRAMA))
-        else:
-            controle.carregar_microprograma([0x00000000, 0x00000000])
-
+        if not MICROPROGRAMA.is_file():
+            raise FileNotFoundError(f"Microprograma ausente: {MICROPROGRAMA}")
+        controle.carregar_microprograma_arquivo(str(MICROPROGRAMA))
         self.controle = controle
         self.cpu = CPU(controle)
-        if callable(getattr(self.cpu, "conectar_controle", None)):
-            self.cpu.conectar_controle(controle)
-
+        self.executando = False
+        self._after_id = None
         self.ciclos = 0
         self.instrucoes = 0
-
-        self.title("Simulador MIC-1 - Arquitetura de Computadores")
-        self.geometry("1350x850")
-
+        self.velocidade_ms = 160
+        self._palavras_carregadas = []
+        self.title("Simulador Gráfico MIC-1")
+        self.geometry("1310x830")
+        self.minsize(1010, 650)
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.left_frame = ctk.CTkFrame(self, width=360, corner_radius=0)
+        self.left_frame = ctk.CTkScrollableFrame(self, width=340, corner_radius=0)
         self.left_frame.grid(row=0, column=0, sticky="nsew")
+        self.right_frame = ctk.CTkScrollableFrame(self, corner_radius=0)
+        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
-        self.label_editor = ctk.CTkLabel(
-            self.left_frame,
-            text="Código / Montador MIC-1",
-            font=("Arial", 13, "bold"),
-        )
-        self.label_editor.pack(padx=15, pady=(15, 5), anchor="w")
-
-        self.text_box = ctk.CTkTextbox(
-            self.left_frame, height=200, width=330, font=("Consolas", 11)
-        )
-        self.text_box.pack(padx=15, pady=5)
-        self.text_box.insert("0.0", "; Escreva seu código aqui\nLOCO 5\nPUSH\nPOP")
-
-        self.label_maquina = ctk.CTkLabel(
-            self.left_frame,
-            text="CÓDIGO DE MÁQUINA",
-            font=("Arial", 13, "bold"),
-        )
-        self.label_maquina.pack(padx=15, pady=(10, 5), anchor="w")
-
-        self.machine_code_box = ctk.CTkTextbox(
-            self.left_frame,
-            height=140,
-            width=330,
-            font=("Consolas", 11),
-            fg_color="#1a1a1a",
-        )
-        self.machine_code_box.pack(padx=15, pady=5)
-        self.machine_code_box.configure(state="disabled")
-
-        self.btn_montar = ctk.CTkButton(
-            self.left_frame,
-            text="⚙ Montar Código",
-            fg_color="#2b6cb0",
-            hover_color="#1e4e8c",
-            height=32,
-            font=("Arial", 12, "bold"),
-            command=self.montar_codigo,
-        )
-        self.btn_montar.pack(padx=15, pady=(6, 4), fill="x")
-
-        self.btn_passo = ctk.CTkButton(
-            self.left_frame,
-            text="▶ Passo (Fase)",
-            fg_color="#1f538d",
-            hover_color="#143d6b",
-            height=38,
-            font=("Arial", 12, "bold"),
-            command=self.executar_passo,
-        )
-        self.btn_passo.pack(padx=15, pady=(10, 8), fill="x")
-
-        self.btn_reiniciar = ctk.CTkButton(
-            self.left_frame,
-            text="⟳ Reiniciar",
-            fg_color="#a83232",
-            hover_color="#7a2424",
-            height=32,
-            font=("Arial", 12, "bold"),
-            command=self.reiniciar,
-        )
-        self.btn_reiniciar.pack(padx=15, pady=5, fill="x")
-
-        self.stats_frame = ctk.CTkFrame(
-            self.left_frame, fg_color="#1a1a1a", corner_radius=6
-        )
-        self.stats_frame.pack(padx=15, pady=(15, 15), fill="x")
-
-        self.label_stats = ctk.CTkLabel(
-            self.stats_frame,
-            text="Ciclos: 0 | Instruções: 0",
-            font=("Consolas", 11, "bold"),
-            text_color="#00ffcc",
-        )
-        self.label_stats.pack(padx=10, pady=8)
-
-        self.right_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
-        self.right_frame.grid_columnconfigure(0, weight=1)
-        self.right_frame.grid_rowconfigure(1, weight=1)
-
-        self.reg_container = ctk.CTkFrame(self.right_frame)
-        self.reg_container.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
-        self.reg_container.grid_columnconfigure(0, weight=1)
-
-        self.label_regs = ctk.CTkLabel(
-            self.reg_container,
-            text="REGISTRADORES DO MIC-1",
-            font=("Arial", 13, "bold"),
-        )
-        self.label_regs.pack(padx=15, pady=(10, 5), anchor="w")
-
-        self.regs_grid_frame = ctk.CTkFrame(
-            self.reg_container, fg_color="transparent"
-        )
-        self.regs_grid_frame.pack(padx=15, pady=(0, 10), fill="x")
-        self.reg_labels = {}
-        self.atualizar_interface_regs()
-
-        self.cache_container = ctk.CTkFrame(self.right_frame)
-        self.cache_container.grid(row=1, column=0, sticky="nsew")
-        self.cache_container.grid_columnconfigure(0, weight=1)
-        self.cache_container.grid_rowconfigure(1, weight=1)
-
-        self.label_cache = ctk.CTkLabel(
-            self.cache_container,
-            text="MEMÓRIA PRINCIPAL / CACHE (MAPEAMENTO DIRETO)",
-            font=("Arial", 13, "bold"),
-        )
-        self.label_cache.pack(padx=15, pady=(10, 5), anchor="w")
-
-        self.cache_grid_frame = ctk.CTkFrame(
-            self.cache_container, fg_color="transparent"
-        )
-        self.cache_grid_frame.pack(
-            padx=15, pady=(0, 15), fill="both", expand=True
-        )
-
-        self.cache_labels = []
-        self.atualizar_interface_cache()
-
+        self._criar_editor_e_controles()
+        self._criar_painel_cpu()
+        self._criar_painel_registradores()
+        self._criar_painel_cache()
+        self.protocol("WM_DELETE_WINDOW", self._fechar)
         self.carregar_programa()
 
-    def atualizar_interface_regs(self):
-        for widget in self.regs_grid_frame.winfo_children():
-            widget.destroy()
+    def _titulo(self, parent, texto):
+        titulo = ctk.CTkLabel(parent, text=texto, font=("Arial", 14, "bold"))
+        titulo.pack(anchor="w", padx=10, pady=(11, 6))
+        return titulo
 
-        estado = self.cpu.get_state()
-        regs = estado.get("registradores", {})
-        col = 0
-        row = 0
-        for nome, valor in regs.items():
-            lbl = ctk.CTkLabel(
-                self.regs_grid_frame,
-                text=f"{nome}: {hex(valor) if isinstance(valor, int) else valor}",
-                font=("Consolas", 12, "bold"),
-                fg_color="#262626",
-                corner_radius=6,
-                height=35,
-            )
-            lbl.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
-            self.regs_grid_frame.grid_columnconfigure(col, weight=1)
-            self.reg_labels[nome] = lbl
+    def _criar_editor_e_controles(self):
+        self._titulo(self.left_frame, "Assembly MAC-1")
+        self.text_box = ctk.CTkTextbox(self.left_frame, height=210, font=("Consolas", 12))
+        self.text_box.pack(fill="x", padx=10, pady=(0, 8))
+        self.text_box.insert("0.0", "; Exemplo de programa\nLOCO 5\nPUSH\nPOP")
 
-            col += 1
-            if col > 2:
-                col = 0
-                row += 1
+        linha1 = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        linha1.pack(fill="x", padx=10, pady=4)
+        ctk.CTkButton(linha1, text="Montar e carregar", command=self.carregar_programa).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(linha1, text="Reset", width=78, command=self.reiniciar).pack(side="left")
 
-    def atualizar_interface_cache(self):
-        for widget in self.cache_grid_frame.winfo_children():
-            widget.destroy()
+        linha2 = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        linha2.pack(fill="x", padx=10, pady=4)
+        self.btn_passo = ctk.CTkButton(linha2, text="Subciclo", command=self.executar_passo)
+        self.btn_passo.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.btn_ciclo = ctk.CTkButton(linha2, text="Microinstrução", command=self.executar_ciclo)
+        self.btn_ciclo.pack(side="left", expand=True, fill="x")
 
-        headers = [
-            "Índice (#)",
-            "Bit V (Validade)",
-            "Tag",
-            "Bloco / Palavras de Dados",
+        linha3 = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        linha3.pack(fill="x", padx=10, pady=4)
+        self.btn_run = ctk.CTkButton(linha3, text="Executar", command=self.iniciar_execucao)
+        self.btn_run.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.btn_pause = ctk.CTkButton(linha3, text="Pausar", command=self.pausar_execucao, state="disabled")
+        self.btn_pause.pack(side="left", expand=True, fill="x")
+
+        self.label_velocidade = ctk.CTkLabel(self.left_frame, text="Intervalo entre subciclos: 160 ms")
+        self.label_velocidade.pack(anchor="w", padx=10, pady=(9, 1))
+        self.slider_velocidade = ctk.CTkSlider(self.left_frame, from_=40, to=1000,
+                                              number_of_steps=48, command=self.alterar_velocidade)
+        self.slider_velocidade.pack(fill="x", padx=10, pady=(2, 6))
+        self.slider_velocidade.set(self.velocidade_ms)
+
+        self._titulo(self.left_frame, "Código de máquina (endereços de palavra)")
+        self.machine_code_box = ctk.CTkTextbox(self.left_frame, height=170, font=("Consolas", 11))
+        self.machine_code_box.pack(fill="x", padx=10, pady=(0, 8))
+        self.machine_code_box.configure(state="disabled")
+        self.label_stats = ctk.CTkLabel(self.left_frame, text="", justify="left", wraplength=325)
+        self.label_stats.pack(fill="x", padx=10, pady=6)
+        self._titulo(self.left_frame, "Transferências do último subciclo")
+        self.label_transferencias = ctk.CTkLabel(self.left_frame, text="Nenhuma operação ainda", justify="left", anchor="w", wraplength=325)
+        self.label_transferencias.pack(fill="x", padx=10, pady=(0, 15))
+
+    def _criar_painel_cpu(self):
+        self._titulo(self.right_frame, "Via de dados e controle")
+        self.cpu_grid = ctk.CTkFrame(self.right_frame)
+        self.cpu_grid.pack(fill="x", padx=10, pady=(0, 10))
+        for coluna in range(4):
+            self.cpu_grid.grid_columnconfigure(coluna, weight=1)
+        self.componentes_visuais = {}
+        nomes = [
+            ("MPC", "MPC"), ("MIR", "MIR"), ("CONTROLE", "MEMORIA_CONTROLE"), ("AMUX", "AMUX"),
+            ("LATCH A", "LATCH_A"), ("LATCH B", "LATCH_B"), ("ULA", "ULA"), ("DESLOCADOR", "DESLOCADOR"),
+            ("BARR. A", "BARRAMENTO_A"), ("BARR. B", "BARRAMENTO_B"), ("BARR. C", "BARRAMENTO_C"), ("MAR", "MAR"),
+            ("MBR", "MBR"), ("CACHE INST.", "CACHE_INSTRUCOES"), ("CACHE DADOS", "CACHE_DADOS"), ("RAM", "RAM"),
         ]
-        col_weights = [1, 1, 2, 4]
+        for i, (texto, chave) in enumerate(nomes):
+            lbl = ctk.CTkLabel(self.cpu_grid, text=texto, fg_color=self.COR_INATIVA,
+                               corner_radius=6, height=37, font=("Arial", 11, "bold"))
+            lbl.grid(row=i // 4, column=i % 4, padx=5, pady=5, sticky="ew")
+            self.componentes_visuais[chave] = lbl
+        self.label_fase = ctk.CTkLabel(self.right_frame, text="", font=("Arial", 12))
+        self.label_fase.pack(anchor="w", padx=12, pady=(0, 8))
+        self.label_sinais = ctk.CTkLabel(self.right_frame, text="", justify="left", anchor="w", wraplength=820)
+        self.label_sinais.pack(fill="x", padx=12, pady=(0, 10))
 
-        for col_idx, h_text in enumerate(headers):
-            lbl_h = ctk.CTkLabel(
-                self.cache_grid_frame,
-                text=h_text,
-                font=("Arial", 11, "bold"),
-                fg_color="#1f538d",
-                corner_radius=4,
-                height=30,
-            )
-            lbl_h.grid(row=0, column=col_idx, padx=4, pady=4, sticky="nsew")
-            self.cache_grid_frame.grid_columnconfigure(
-                col_idx, weight=col_weights[col_idx]
-            )
+    def _criar_painel_registradores(self):
+        self._titulo(self.right_frame, "Registradores (hexadecimal)")
+        self.regs_grid_frame = ctk.CTkFrame(self.right_frame)
+        self.regs_grid_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self.reg_labels = {}
+        for coluna in range(4):
+            self.regs_grid_frame.grid_columnconfigure(coluna, weight=1)
+        for indice, nome in enumerate(("PC", "AC", "SP", "IR", "TIR", "0", "+1", "-1", "AMASK", "SMASK", "A", "B", "C", "D", "E", "F")):
+            celula = ctk.CTkFrame(self.regs_grid_frame)
+            celula.grid(row=indice // 4, column=indice % 4, sticky="ew", padx=4, pady=4)
+            ctk.CTkLabel(celula, text=nome, font=("Arial", 10, "bold")).pack(anchor="w", padx=8)
+            lbl = ctk.CTkLabel(celula, text="0000", font=("Consolas", 14))
+            lbl.pack(anchor="w", padx=8, pady=(0, 4))
+            self.reg_labels[nome] = lbl
+        rodape = ctk.CTkFrame(self.regs_grid_frame, fg_color="transparent")
+        rodape.grid(row=4, column=0, columnspan=4, sticky="ew", padx=4, pady=8)
+        self.label_barramentos = ctk.CTkLabel(rodape, text="", font=("Consolas", 11), justify="left")
+        self.label_barramentos.pack(anchor="w", padx=5)
 
-        estado = self.cpu.get_state()
-        mem_estado = estado.get("memoria") or {}
-        cache_dados = mem_estado.get("cache_dados") or {}
-        linhas = (
-            cache_dados.get("linhas")
-            or mem_estado.get("cache")
-            or mem_estado.get("linhas")
-            or []
-        )
+    def _criar_painel_cache(self):
+        self._titulo(self.right_frame, "Caches de mapeamento direto")
+        self.cache_container = ctk.CTkFrame(self.right_frame)
+        self.cache_container.pack(fill="x", padx=10, pady=(0, 14))
+        self.cache_container.grid_columnconfigure(0, weight=1)
+        self.cache_container.grid_columnconfigure(1, weight=1)
+        self.cache_labels = {}
+        self.cache_stats_labels = {}
+        for coluna, (chave, titulo) in enumerate((("cache_instrucoes", "Cache de instruções"),
+                                                  ("cache_dados", "Cache de dados"))):
+            painel = ctk.CTkFrame(self.cache_container)
+            painel.grid(row=0, column=coluna, sticky="nsew", padx=7, pady=7)
+            ctk.CTkLabel(painel, text=titulo, font=("Arial", 13, "bold")).pack(pady=(7, 2))
+            stats = ctk.CTkLabel(painel, text="Hits: 0 | Misses: 0", font=("Arial", 10))
+            stats.pack()
+            self.cache_stats_labels[chave] = stats
+            grid = ctk.CTkFrame(painel, fg_color="transparent")
+            grid.pack(fill="x", padx=8, pady=(5, 9))
+            for j, cab in enumerate(("Linha", "V", "Tag", "Dado")):
+                grid.grid_columnconfigure(j, weight=1)
+                ctk.CTkLabel(grid, text=cab, font=("Arial", 10, "bold")).grid(row=0, column=j, padx=3)
+            self.cache_labels[chave] = []
+            num_linhas = getattr(getattr(self.cpu.memoria, chave), "num_linhas", 8)
+            for i in range(num_linhas):
+                ctk.CTkLabel(grid, text=str(i)).grid(row=i + 1, column=0)
+                dados = []
+                for j in range(1, 4):
+                    lbl = ctk.CTkLabel(grid, text="---", font=("Consolas", 11))
+                    lbl.grid(row=i + 1, column=j, padx=4, pady=1, sticky="ew")
+                    dados.append(lbl)
+                self.cache_labels[chave].append(tuple(dados))
+        self.label_ultima_memoria = ctk.CTkLabel(self.cache_container, text="Último acesso: nenhum", justify="left")
+        self.label_ultima_memoria.grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 7))
 
-        self.cache_labels = []
-        for i in range(8):
-            linha = linhas[i] if i < len(linhas) else {}
-            if isinstance(linha, dict):
-                valido = linha.get("valido", linha.get("v", 0))
-                tag = linha.get("tag", "---")
-                dados = linha.get(
-                    "dado", linha.get("dados", linha.get("bloco", "0x00000000"))
-                )
-            else:
-                valido, tag, dados = 0, "---", "0x00000000"
+    def alterar_velocidade(self, valor):
+        self.velocidade_ms = int(valor)
+        self.label_velocidade.configure(text=f"Intervalo entre subciclos: {self.velocidade_ms} ms")
 
-            if isinstance(dados, int):
-                dados_txt = hex(dados)
-            elif isinstance(dados, (list, tuple)):
-                dados_txt = " ".join(
-                    hex(x) if isinstance(x, int) else str(x) for x in dados
-                )
-            else:
-                dados_txt = str(dados)
+    def _parar_tarefa(self):
+        self.executando = False
+        if self._after_id is not None:
+            self.after_cancel(self._after_id)
+            self._after_id = None
 
-            tag_txt = hex(tag) if isinstance(tag, int) else str(tag)
+    def pausar_execucao(self):
+        self._parar_tarefa()
+        self.atualizar_tela()
 
-            lbl_idx = ctk.CTkLabel(
-                self.cache_grid_frame,
-                text=f"[{i}]",
-                font=("Consolas", 11),
-                fg_color="#262626",
-                height=28,
-            )
-            lbl_idx.grid(row=i + 1, column=0, padx=4, pady=2, sticky="nsew")
-
-            lbl_v = ctk.CTkLabel(
-                self.cache_grid_frame,
-                text=str(int(bool(valido)) if isinstance(valido, bool) else valido),
-                font=("Consolas", 11),
-                fg_color="#262626",
-                height=28,
-            )
-            lbl_v.grid(row=i + 1, column=1, padx=4, pady=2, sticky="nsew")
-
-            lbl_tag = ctk.CTkLabel(
-                self.cache_grid_frame,
-                text=tag_txt,
-                font=("Consolas", 11),
-                fg_color="#262626",
-                height=28,
-            )
-            lbl_tag.grid(row=i + 1, column=2, padx=4, pady=2, sticky="nsew")
-
-            lbl_data = ctk.CTkLabel(
-                self.cache_grid_frame,
-                text=dados_txt,
-                font=("Consolas", 11),
-                fg_color="#262626",
-                height=28,
-            )
-            lbl_data.grid(row=i + 1, column=3, padx=4, pady=2, sticky="nsew")
-
-            self.cache_labels.append((lbl_v, lbl_tag, lbl_data))
-
-    def atualizar_valores_cache(self):
-        mem_estado = self.cpu.get_state().get("memoria") or {}
-        cache_dados = mem_estado.get("cache_dados") or {}
-        linhas = cache_dados.get("linhas")
-        if not linhas or not self.cache_labels:
-            self.atualizar_interface_cache()
+    def iniciar_execucao(self):
+        if self.executando or self.cpu.halted:
             return
+        self.executando = True
+        self.atualizar_tela()
+        self._tick_execucao()
 
-        for (lbl_v, lbl_tag, lbl_data), linha in zip(self.cache_labels, linhas):
-            valido = bool(linha.get("valido", 0))
-            tag = linha.get("tag", "---")
-            dado = linha.get("dado", linha.get("dados", 0))
-            lbl_v.configure(text="1" if valido else "0")
-            lbl_tag.configure(text=str(tag) if valido else "---")
-            if isinstance(dado, int):
-                lbl_data.configure(text=f"0x{dado:04X}")
-            else:
-                lbl_data.configure(text=str(dado))
+    def _tick_execucao(self):
+        self._after_id = None
+        if not self.executando:
+            return
+        try:
+            self.cpu.executar_subciclo()
+            self.ciclos += 1
+        except Exception as erro:
+            self._parar_tarefa()
+            messagebox.showerror("Falha durante a execução", str(erro))
+            self.atualizar_tela()
+            return
+        if self.cpu.halted:
+            self._parar_tarefa()
+        self.atualizar_tela()
+        if self.executando:
+            self._after_id = self.after(self.velocidade_ms, self._tick_execucao)
 
-    def atualizar_tela(self):
-        self.atualizar_interface_regs()
-        self.atualizar_valores_cache()
-        texto = f"Ciclos: {self.ciclos} | Instruções: {self.instrucoes}"
-        if getattr(self.cpu, "halted", False):
-            texto += " | FIM"
-        self.label_stats.configure(text=texto)
-        self.btn_passo.configure(
-            state="disabled" if getattr(self.cpu, "halted", False) else "normal"
-        )
+    def executar_passo(self):
+        if self.executando or self.cpu.halted:
+            return
+        try:
+            self.cpu.executar_subciclo()
+            self.ciclos += 1
+        except Exception as erro:
+            messagebox.showerror("Falha durante a execução", str(erro))
+            return
+        self.atualizar_tela()
+
+    def executar_ciclo(self):
+        if self.executando or self.cpu.halted:
+            return
+        try:
+            antes = self.cpu.subciclo
+            self.cpu.executar_ciclo()
+            self.ciclos += 4 - antes
+        except Exception as erro:
+            messagebox.showerror("Falha durante a execução", str(erro))
+            return
+        self.atualizar_tela()
 
     def carregar_programa(self):
-        """Monta o texto do editor, carrega na memória e zera a CPU."""
+        """Monta, troca a RAM e reinicia a execução apenas após montagem válida."""
+        self._parar_tarefa()
         fonte = self.text_box.get("0.0", "end")
         try:
             resultado = montar(fonte)
-        except ErroDeMontagem as erro:
-            messagebox.showerror("Erro de montagem", str(erro))
+            palavras = list(resultado[0])
+            self.cpu.carregar_programa(palavras)
+        except (ErroDeMontagem, ValueError, IndexError) as erro:
+            messagebox.showerror("Erro ao montar/carregar", str(erro))
+            self.atualizar_tela()
             return
         except Exception as erro:
-            messagebox.showerror("Erro ao montar", str(erro))
+            messagebox.showerror("Falha ao carregar programa", str(erro))
+            self.atualizar_tela()
             return
-
-        if isinstance(resultado, tuple) and len(resultado) >= 1 and isinstance(resultado[0], (list, tuple)):
-            palavras = list(resultado[0])
-        elif isinstance(resultado, (list, tuple)):
-            palavras = list(resultado)
-        else:
-            palavras = []
-
-        self.cpu.reset()
-
-        mem = getattr(self.cpu, "memoria", None)
-        ram_interna = getattr(mem, "memoria", None) if mem is not None else None
-        if ram_interna is not None and callable(getattr(ram_interna, "escrever", None)):
-            for endereco, palavra in enumerate(palavras):
-                if isinstance(palavra, int):
-                    ram_interna.escrever(endereco, palavra)
-
-        if callable(getattr(self.cpu, "carregar_programa", None)):
-            self.cpu.carregar_programa(palavras)
-        else:
-            self._carregar_programa_na_cpu(palavras)
-
+        self._palavras_carregadas = palavras
+        # A pilha inicia fora da região ocupada pelo programa de demonstração.
+        self.cpu.registradores.gravar(2, max(100, len(palavras) + 16))
         self.ciclos = 0
         self.instrucoes = 0
-
         textos = []
         for linha in fonte.splitlines():
             try:
@@ -363,18 +274,10 @@ class Mic1SimulatorApp(ctk.CTk):
                     textos.append(f"{instrucao} {operando}" if operando else instrucao)
             except Exception:
                 pass
-
-        if textos and len(textos) == len(palavras):
-            linhas = [
-                f"{i:04X} {palavra:04x} {texto}" if isinstance(palavra, int) else f"{i:04X} {palavra} {texto}"
-                for i, (palavra, texto) in enumerate(zip(palavras, textos))
-            ]
-        else:
-            linhas = [
-                f"{i * 4:04X} {palavra:08X}" if isinstance(palavra, int) else f"{i * 4:04X} {palavra}"
-                for i, palavra in enumerate(palavras)
-            ]
-
+        linhas = []
+        for i, palavra in enumerate(palavras):
+            comentario = f"  {textos[i]}" if len(textos) == len(palavras) else ""
+            linhas.append(f"{i:04X}: {palavra:04X}{comentario}")
         self.machine_code_box.configure(state="normal")
         self.machine_code_box.delete("0.0", "end")
         self.machine_code_box.insert("0.0", "\n".join(linhas))
@@ -384,50 +287,84 @@ class Mic1SimulatorApp(ctk.CTk):
     def montar_codigo(self):
         self.carregar_programa()
 
-    def _carregar_programa_na_cpu(self, palavras):
-        mem = getattr(self.cpu, "memoria", None)
-        if mem is None:
-            return
-
-        for idx, palavra in enumerate(palavras):
-            if not isinstance(palavra, int):
-                continue
-            endereco = idx * 4
-            if callable(getattr(mem, "escrever_palavra", None)):
-                mem.escrever_palavra(endereco, palavra)
-            elif (
-                hasattr(self.cpu, "mar")
-                and hasattr(self.cpu, "mbr")
-                and callable(getattr(mem, "escrever", None))
-            ):
-                mar_antigo = self.cpu.mar.valor
-                mbr_antigo = self.cpu.mbr.valor
-                self.cpu.mar.gravar(endereco)
-                self.cpu.mbr.gravar(palavra)
-                mem.escrever()
-                self.cpu.mar.gravar(mar_antigo)
-                self.cpu.mbr.gravar(mbr_antigo)
-
-    def executar_passo(self):
-        if getattr(self.cpu, "halted", False):
-            return
-        try:
-            self.cpu.executar_subciclo()
-        except NotImplementedError as e:
-            self.label_stats.configure(text=str(e))
-            return
-        if getattr(self.cpu, "subciclo", None) == 0:
-            self.ciclos += 1
-        self.atualizar_tela()
-
     def reiniciar(self):
-        self.cpu.reset()
+        """Volta à primeira microinstrução, sem perder o código da RAM."""
+        self._parar_tarefa()
+        self.cpu.reset(limpar_memoria=False)
+        self.cpu.registradores.gravar(2, max(100, len(self._palavras_carregadas) + 16))
         self.ciclos = 0
         self.instrucoes = 0
         self.atualizar_tela()
+
+    def atualizar_interface_regs(self, estado=None):
+        estado = self.cpu.get_state() if estado is None else estado
+        for nome, lbl in self.reg_labels.items():
+            lbl.configure(text=f"{estado['registradores'].get(nome, 0) & 0xFFFF:04X}")
+        self.label_barramentos.configure(
+            text=(f"MAR={estado['mar']:03X}  MBR={estado['mbr']:04X}  "
+                  f"A={estado['barramento_a']:04X}  B={estado['barramento_b']:04X}\n"
+                  f"ULA={estado['resultado_ula']:04X}  DESL={estado['resultado_deslocador']:04X}  "
+                  f"N={estado['flag_n']}  Z={estado['flag_z']}")
+        )
+
+    def atualizar_interface_cache(self, estado=None):
+        estado = self.cpu.get_state() if estado is None else estado
+        memoria = estado["memoria"]
+        for chave, labels in self.cache_labels.items():
+            cache = memoria[chave]
+            self.cache_stats_labels[chave].configure(text=f"Hits: {cache['hits']} | Misses: {cache['misses']}")
+            for (lbl_valido, lbl_tag, lbl_dado), linha in zip(labels, cache["linhas"]):
+                valido = bool(linha["valido"])
+                lbl_valido.configure(text="1" if valido else "0")
+                lbl_tag.configure(text=str(linha["tag"]) if valido else "---")
+                lbl_dado.configure(text=f"{linha['dado']:04X}" if valido else "----")
+        op = memoria["ultima_operacao"]
+        if op:
+            texto = f"Último acesso: {op['tipo']} em {op['endereco']:03X}"
+            if "cache" in op:
+                texto += f" | {op['cache']} ({op['resultado']})"
+        else:
+            texto = "Último acesso: nenhum"
+        self.label_ultima_memoria.configure(text=texto)
+
+    def atualizar_valores_cache(self):
+        """Compatibilidade com a interface antiga."""
+        self.atualizar_interface_cache()
+
+    def atualizar_tela(self):
+        estado = self.cpu.get_state()
+        self.atualizar_interface_regs(estado)
+        self.atualizar_interface_cache(estado)
+        ativos = set(estado["componentes_ativos"])
+        if "RD" in ativos or "WR" in ativos:
+            ativos.add("RAM")
+        for nome, lbl in self.componentes_visuais.items():
+            lbl.configure(fg_color=self.COR_ATIVA if nome in ativos else self.COR_INATIVA)
+        fase = estado["ultima_etapa_executada"]
+        ultimo = "Nenhuma" if fase is None else self.FASES[fase]
+        self.label_fase.configure(text=f"Último subciclo: {ultimo} | Próximo: {self.FASES[estado['subciclo']]}")
+        sinais = estado["sinais"] or {}
+        self.label_sinais.configure(text="MIR: %08X  MPC: %02X | %s" % (
+            estado["mir"], estado["mpc"],
+            "  ".join(f"{chave}={valor}" for chave, valor in sinais.items()) if sinais else "Sem MIR carregado"
+        ))
+        self.label_transferencias.configure(text="\n".join(estado["transferencias"]) or "Nenhuma operação ainda")
+        self.label_stats.configure(text=(
+            f"Subciclo seguinte: {estado['subciclo']} | "
+            f"Microinstruções concluídas: {estado['microinstrucoes_executadas']}\n"
+            f"Passos executados: {self.ciclos}" + (" | FIM" if estado["halted"] else "")
+        ))
+        pode_passo = not estado["halted"] and not self.executando
+        self.btn_passo.configure(state="normal" if pode_passo else "disabled")
+        self.btn_ciclo.configure(state="normal" if pode_passo else "disabled")
+        self.btn_run.configure(state="normal" if pode_passo else "disabled")
+        self.btn_pause.configure(state="normal" if self.executando else "disabled")
+
+    def _fechar(self):
+        self._parar_tarefa()
+        self.destroy()
 
 
 if __name__ == "__main__":
     app = Mic1SimulatorApp()
     app.mainloop()
-
