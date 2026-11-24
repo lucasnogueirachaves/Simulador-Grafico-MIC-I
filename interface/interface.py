@@ -71,6 +71,82 @@ class Mic1SimulatorApp(ctk.CTk):
             fg_color="#1a1a1a",
         )
         self.machine_code_box.pack(padx=15, pady=5)
+        self.machine_code_box.configure(state="disabled")
+
+        self.btn_montar = ctk.CTkButton(
+            self.left_frame,
+            text="⚙ Montar Código",
+            fg_color="#2b6cb0",
+            hover_color="#1e4e8c",
+            height=32,
+            font=("Arial", 12, "bold"),
+            command=self.montar_codigo,
+        )
+        self.btn_montar.pack(padx=15, pady=(6, 4), fill="x")
+
+        self.btn_passo = ctk.CTkButton(
+            self.left_frame,
+            text="▶ Passo (Fase)",
+            fg_color="#1f538d",
+            hover_color="#143d6b",
+            height=38,
+            font=("Arial", 12, "bold"),
+            command=self.executar_passo,
+        )
+        self.btn_passo.pack(padx=15, pady=(10, 8), fill="x")
+
+        self.btn_reiniciar = ctk.CTkButton(
+            self.left_frame,
+            text="⟳ Reiniciar",
+            fg_color="#a83232",
+            hover_color="#7a2424",
+            height=32,
+            font=("Arial", 12, "bold"),
+            command=self.reiniciar,
+        )
+        self.btn_reiniciar.pack(padx=15, pady=5, fill="x")
+
+        self.stats_frame = ctk.CTkFrame(
+            self.left_frame, fg_color="#1a1a1a", corner_radius=6
+        )
+        self.stats_frame.pack(padx=15, pady=(15, 15), fill="x")
+
+        self.label_stats = ctk.CTkLabel(
+            self.stats_frame,
+            text="Ciclos: 0 | Instruções: 0",
+            font=("Consolas", 11, "bold"),
+            text_color="#00ffcc",
+        )
+        self.label_stats.pack(padx=10, pady=8)
+
+        self.right_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
+        self.right_frame.grid_columnconfigure(0, weight=1)
+        self.right_frame.grid_rowconfigure(1, weight=1)
+
+        self.reg_container = ctk.CTkFrame(self.right_frame)
+        self.reg_container.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
+        self.reg_container.grid_columnconfigure(0, weight=1)
+
+        self.label_regs = ctk.CTkLabel(
+            self.reg_container,
+            text="REGISTRADORES DO MIC-1",
+            font=("Arial", 13, "bold"),
+        )
+        self.label_regs.pack(padx=15, pady=(10, 5), anchor="w")
+
+        self.regs_grid_frame = ctk.CTkFrame(
+            self.reg_container, fg_color="transparent"
+        )
+        self.regs_grid_frame.pack(padx=15, pady=(0, 10), fill="x")
+        self.reg_labels = {}
+        self.atualizar_interface_regs()
+
+        self.cache_container = ctk.CTkFrame(self.right_frame)
+        self.cache_container.grid(row=1, column=0, sticky="nsew")
+        self.cache_container.grid_columnconfigure(0, weight=1)
+        self.cache_container.grid_rowconfigure(1, weight=1)
+
         self.label_cache = ctk.CTkLabel(
             self.cache_container,
             text="MEMÓRIA PRINCIPAL / CACHE (MAPEAMENTO DIRETO)",
@@ -96,6 +172,54 @@ class Mic1SimulatorApp(ctk.CTk):
 
         estado = self.cpu.get_state()
         regs = estado.get("registradores", {})
+        col = 0
+        row = 0
+        for nome, valor in regs.items():
+            lbl = ctk.CTkLabel(
+                self.regs_grid_frame,
+                text=f"{nome}: {hex(valor) if isinstance(valor, int) else valor}",
+                font=("Consolas", 12, "bold"),
+                fg_color="#262626",
+                corner_radius=6,
+                height=35,
+            )
+            lbl.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
+            self.regs_grid_frame.grid_columnconfigure(col, weight=1)
+            self.reg_labels[nome] = lbl
+
+            col += 1
+            if col > 2:
+                col = 0
+                row += 1
+
+    def atualizar_interface_cache(self):
+        for widget in self.cache_grid_frame.winfo_children():
+            widget.destroy()
+
+        headers = [
+            "Índice (#)",
+            "Bit V (Validade)",
+            "Tag",
+            "Bloco / Palavras de Dados",
+        ]
+        col_weights = [1, 1, 2, 4]
+
+        for col_idx, h_text in enumerate(headers):
+            lbl_h = ctk.CTkLabel(
+                self.cache_grid_frame,
+                text=h_text,
+                font=("Arial", 11, "bold"),
+                fg_color="#1f538d",
+                corner_radius=4,
+                height=30,
+            )
+            lbl_h.grid(row=0, column=col_idx, padx=4, pady=4, sticky="nsew")
+            self.cache_grid_frame.grid_columnconfigure(
+                col_idx, weight=col_weights[col_idx]
+            )
+
+        estado = self.cpu.get_state()
+        mem_estado = estado.get("memoria") or {}
         cache_dados = mem_estado.get("cache_dados") or {}
         linhas = (
             cache_dados.get("linhas")
@@ -127,6 +251,42 @@ class Mic1SimulatorApp(ctk.CTk):
 
             tag_txt = hex(tag) if isinstance(tag, int) else str(tag)
 
+            lbl_idx = ctk.CTkLabel(
+                self.cache_grid_frame,
+                text=f"[{i}]",
+                font=("Consolas", 11),
+                fg_color="#262626",
+                height=28,
+            )
+            lbl_idx.grid(row=i + 1, column=0, padx=4, pady=2, sticky="nsew")
+
+            lbl_v = ctk.CTkLabel(
+                self.cache_grid_frame,
+                text=str(int(bool(valido)) if isinstance(valido, bool) else valido),
+                font=("Consolas", 11),
+                fg_color="#262626",
+                height=28,
+            )
+            lbl_v.grid(row=i + 1, column=1, padx=4, pady=2, sticky="nsew")
+
+            lbl_tag = ctk.CTkLabel(
+                self.cache_grid_frame,
+                text=tag_txt,
+                font=("Consolas", 11),
+                fg_color="#262626",
+                height=28,
+            )
+            lbl_tag.grid(row=i + 1, column=2, padx=4, pady=2, sticky="nsew")
+
+            lbl_data = ctk.CTkLabel(
+                self.cache_grid_frame,
+                text=dados_txt,
+                font=("Consolas", 11),
+                fg_color="#262626",
+                height=28,
+            )
+            lbl_data.grid(row=i + 1, column=3, padx=4, pady=2, sticky="nsew")
+
             self.cache_labels.append((lbl_v, lbl_tag, lbl_data))
 
     def atualizar_valores_cache(self):
@@ -151,10 +311,7 @@ class Mic1SimulatorApp(ctk.CTk):
     def atualizar_tela(self):
         self.atualizar_interface_regs()
         self.atualizar_valores_cache()
-        estado = self.cpu.get_state()
-        subciclo = estado.get("subciclo", 0)
-        micros = estado.get("microinstrucoes_executadas", 0)
-        texto = f"Subciclo: {subciclo} | Microinstruções: {micros}"
+        texto = f"Ciclos: {self.ciclos} | Instruções: {self.instrucoes}"
         if getattr(self.cpu, "halted", False):
             texto += " | FIM"
         self.label_stats.configure(text=texto)
@@ -182,6 +339,14 @@ class Mic1SimulatorApp(ctk.CTk):
             palavras = []
 
         self.cpu.reset()
+
+        mem = getattr(self.cpu, "memoria", None)
+        ram_interna = getattr(mem, "memoria", None) if mem is not None else None
+        if ram_interna is not None and callable(getattr(ram_interna, "escrever", None)):
+            for endereco, palavra in enumerate(palavras):
+                if isinstance(palavra, int):
+                    ram_interna.escrever(endereco, palavra)
+
         if callable(getattr(self.cpu, "carregar_programa", None)):
             self.cpu.carregar_programa(palavras)
         else:
@@ -201,7 +366,7 @@ class Mic1SimulatorApp(ctk.CTk):
 
         if textos and len(textos) == len(palavras):
             linhas = [
-                f"{i * 4:04X} {palavra:04X} {texto}" if isinstance(palavra, int) else f"{i * 4:04X} {palavra} {texto}"
+                f"{i:04X} {palavra:04x} {texto}" if isinstance(palavra, int) else f"{i:04X} {palavra} {texto}"
                 for i, (palavra, texto) in enumerate(zip(palavras, textos))
             ]
         else:
@@ -224,10 +389,6 @@ class Mic1SimulatorApp(ctk.CTk):
         if mem is None:
             return
 
-        if callable(getattr(mem, "carregar_programa", None)):
-            mem.carregar_programa(palavras)
-            return
-
         for idx, palavra in enumerate(palavras):
             if not isinstance(palavra, int):
                 continue
@@ -248,12 +409,15 @@ class Mic1SimulatorApp(ctk.CTk):
                 self.cpu.mbr.gravar(mbr_antigo)
 
     def executar_passo(self):
+        if getattr(self.cpu, "halted", False):
+            return
         try:
             self.cpu.executar_subciclo()
         except NotImplementedError as e:
             self.label_stats.configure(text=str(e))
             return
-        self.ciclos += 1
+        if getattr(self.cpu, "subciclo", None) == 0:
+            self.ciclos += 1
         self.atualizar_tela()
 
     def reiniciar(self):
@@ -266,3 +430,4 @@ class Mic1SimulatorApp(ctk.CTk):
 if __name__ == "__main__":
     app = Mic1SimulatorApp()
     app.mainloop()
+
