@@ -34,11 +34,19 @@ class Cache:
             self.dado[linha] = self.memoria.ler(endereco)
         return self.dado[linha]
 
-    def escrever(self, endereco, valor):
-        self.memoria.escrever(endereco, valor)          
+    def atualizar_se_presente(self, endereco, valor):
+        """Mantém uma cópia já carregada coerente, sem escrever na RAM.
+
+        Write-no-allocate: se o endereço não estiver presente, não cria linha.
+        """
         linha, tag = self._linha_e_tag(endereco)
         if self._esta_na_cache(linha, tag):
-            self.dado[linha] = valor & 0xFFFF           
+            self.dado[linha] = valor & 0xFFFF
+
+    def escrever(self, endereco, valor):
+        """Write-through quando a cache é usada diretamente."""
+        self.memoria.escrever(endereco, valor)
+        self.atualizar_se_presente(endereco, valor)
 
     def get_state(self):
         """Tudo o que a interface precisa para desenhar a cache."""

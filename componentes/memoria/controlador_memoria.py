@@ -27,26 +27,36 @@ class ControladorMemoria:
         """Sinal wr: MBR -> memória[MAR]."""
         endereco = self.mar.ler()
         valor = self.mbr.ler()
-        self.cache_dados.escrever(endereco, valor)
-        # Se o endereço também estiver na cache de instruções, atualiza a cópia de lá
-        self.cache_instrucoes.escrever(endereco, valor)
+        # Uma única escrita física; ambas as caches mantêm cópias coerentes.
+        self.memoria.escrever(endereco, valor)
+        self.cache_dados.atualizar_se_presente(endereco, valor)
+        self.cache_instrucoes.atualizar_se_presente(endereco, valor)
         self.ultima_operacao = {"tipo": "escrita", "endereco": endereco, "valor": valor}
 
     def carregar_programa(self, palavras):
-        """Recebe a lista de palavras do montador e coloca na memória."""
+        """Substitui o conteúdo da RAM e invalida as duas caches."""
+        palavras = list(palavras)
+        if len(palavras) > self.memoria.tamanho:
+            raise ValueError("O programa excede a capacidade da memória principal")
+        if any(not isinstance(p, int) or not 0 <= p <= 0xFFFF for p in palavras):
+            raise ValueError("Cada palavra do programa deve ser um inteiro de 16 bits")
         self.reset()
         self.memoria.carregar_programa(palavras)
 
-    def reset(self):
-        self.memoria.reset()
+    def reset_caches(self):
+        """Reinicia as caches, mas mantém todo o conteúdo da RAM."""
         self.cache_instrucoes.reset()
         self.cache_dados.reset()
         self.ultima_operacao = None
 
+    def reset(self):
+        self.memoria.reset()
+        self.reset_caches()
+
     def get_state(self):
         return {
-            "memoria": self.memoria.dados,
+            "memoria": list(self.memoria.dados),
             "cache_instrucoes": self.cache_instrucoes.get_state(),
             "cache_dados": self.cache_dados.get_state(),
-            "ultima_operacao": self.ultima_operacao,
+            "ultima_operacao": dict(self.ultima_operacao) if self.ultima_operacao else None,
         }

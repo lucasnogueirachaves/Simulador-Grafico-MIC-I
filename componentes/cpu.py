@@ -10,8 +10,7 @@ from .controle.mmux import Mmux
 from .via_de_dados.amux import Amux
 from .via_de_dados.latches import Latchs
 
-"""correções relacionadas a conexão com outros arquivos do projeto ainda precisam ser feitas,
-   mas a lógica da cpu está estruturada com exceção de algumas funções :)"""
+"""Coordenação dos quatro subciclos da CPU MIC-1."""
 
 def decodificar_microinstrucao(palavra):
     """Extrai os campos, na ordem MSB->LSB da imagem do projeto."""
@@ -88,7 +87,9 @@ class CPU:
         self.mbr.resetar()
         if limpar_memoria:
             self.memoria.reset()
-            self.fim_do_programa = None     # a RAM foi apagada: não há programa carregado
+            self.fim_do_programa = None  # Não há programa após limpar a RAM.
+        else:
+            self.memoria.reset_caches()  # Preserva RAM, zera estatísticas de cache.
         self._mpc.resetar()
         self._mir.resetar()
         self.latch_a.carregar(0)
@@ -104,6 +105,8 @@ class CPU:
         self.flag_n = 0
         self.flag_z = 0
         self.componentes_ativos = []
+        self.transferencias = []
+        self.ultima_etapa_executada = None
         self.microinstrucoes_executadas = 0
         self.deslocador.entrada = 0
         self.deslocador.resultado = 0
@@ -115,10 +118,12 @@ class CPU:
         Quando o PC passar da última instrução, a CPU para (halted = True).
         Um programa vazio já começa parado.
         """
-        for endereco, palavra in enumerate(palavras):
-            self.memoria.memoria.escrever(endereco, palavra)
+        palavras = list(palavras)
+        # O controlador valida todo o programa e invalida caches antigas.
+        self.memoria.carregar_programa(palavras)
+        self.reset(limpar_memoria=False)
         self.fim_do_programa = len(palavras)
-        self.halted = len(palavras) == 0
+        self.halted = not palavras
 
     def _verificar_fim_do_programa(self):
         """Para a CPU ao terminar uma instrução cujo PC já passou do programa."""
@@ -132,6 +137,7 @@ class CPU:
         self._mir.gravar(self._ler_memoria_controle(self.mpc))
         self.sinais = decodificar_microinstrucao(self.mir)
         self.componentes_ativos = ["MPC", "MIR", "MEMORIA_CONTROLE"]
+        self.transferencias = [f"Controle[{self.mpc:02X}] → MIR"]
 
     def ler_operandos(self):
         # Subciclo 1: latches de entrada da ULA.
@@ -143,7 +149,12 @@ class CPU:
         self.barramento_a = self.latch_a.ler()
         self.barramento_b = self.latch_b.ler()
         self.entrada_ula_a = self.amux.selecionar(s["AMUX"], self.latch_a.ler(), self.mbr.valor)
-        self.componentes_ativos = ["BARRAMENTO_A", "BARRAMENTO_B", "AMUX"]
+        self.componentes_ativos = ["BARRAMENTO_A", "BARRAMENTO_B", "AMUX", "LATCH_A", "LATCH_B"]
+        self.transferencias = [
+            f"R{s['A']} → A ({self.barramento_a:04X})",
+            f"R{s['B']} → B ({self.barramento_b:04X})",
+            "MBR → ULA A" if s["AMUX"] else "Latch A → ULA A",
+        ]
 
     def executar_ula(self):
         # Subciclo 2: a ULA calcula flags ANTES do deslocador.
@@ -157,6 +168,10 @@ class CPU:
             self.resultado_ula, s["DESL"]
         )
         self.componentes_ativos = ["ULA", "DESLOCADOR", "N", "Z"]
+        self.transferencias = [
+            f"ULA: {self.entrada_ula_a:04X}, {self.barramento_b:04X} → {self.resultado_ula:04X}",
+            f"Deslocador → {self.resultado_deslocador:04X}",
+        ]
 
     def escrever_resultado(self):
         # Subciclo 3: todos os destinos veem os valores do MESMO ciclo.
@@ -165,32 +180,42 @@ class CPU:
             raise RuntimeError("Nenhuma microinstrução foi carregada.")
         saida = self.resultado_deslocador
         self.componentes_ativos = []
+        self.transferencias = []
 
         # MAR é alimentado pelo barramento B, não pela saída da ULA.
         if s["MAR"]:
             self.mar.gravar(self.barramento_b)
             self.componentes_ativos.append("MAR")
+            self.transferencias.append(f"B → MAR ({self.mar.valor:03X})")
         if s["MBR"]:
             self.mbr.gravar(saida)
             self.componentes_ativos.append("MBR")
+            self.transferencias.append(f"Deslocador → MBR ({self.mbr.valor:04X})")
         if s["ENC"]:
             self.registradores.gravar(s["C"], saida)
             self.componentes_ativos.append("BARRAMENTO_C")
+            self.transferencias.append(f"C → R{s['C']} ({saida:04X})")
 
         # Modelo funcional: a memória responde imediatamente aos comandos.
         # A distinção de latência/cache poderá ser acrescentada posteriormente.
         if s["RD"]:
-            self.memoria.ler()
-            self.componentes_ativos.append("RD")
+            # No microprograma distribuído, os endereços 0 e 1 buscam
+            # macroinstruções. Os demais RD acessam dados.
+            busca_instrucao = self.mpc in (0, 1)
+            valor = self.memoria.ler(instrucao=busca_instrucao)
+            self.componentes_ativos.extend(("RD", "CACHE_INSTRUCOES" if busca_instrucao else "CACHE_DADOS"))
+            self.transferencias.append(f"Memória[{self.mar.valor:03X}] → MBR ({valor:04X})")
         if s["WR"]:
             self.memoria.escrever()
-            self.componentes_ativos.append("WR")
+            self.componentes_ativos.extend(("WR", "CACHE_DADOS", "CACHE_INSTRUCOES"))
+            self.transferencias.append(f"MBR → Memória[{self.mar.valor:03X}]")
 
         # Próximo MPC: o Mmux decide entre MPC + 1 e o campo ADDR (COND, N e Z)
         self._mpc.gravar(self.mmux.calcular_proximo_mpc(
             self.mpc, s["COND"], s["ADDR"], self.flag_n == 1, self.flag_z == 1))
         self.microinstrucoes_executadas += 1
         self.componentes_ativos.append("MPC")
+        self.transferencias.append(f"Próximo MPC = {self.mpc:02X}")
 
     def executar_subciclo(self):
         """Avança uma etapa (0=busca, 1=leitura, 2=ULA, 3=escrita)."""
@@ -202,8 +227,10 @@ class CPU:
             self.executar_ula,
             self.escrever_resultado,
         )
-        etapas[self.subciclo]()
-        self.subciclo = (self.subciclo + 1) % 4
+        etapa_executada = self.subciclo
+        etapas[etapa_executada]()
+        self.ultima_etapa_executada = etapa_executada
+        self.subciclo = (etapa_executada + 1) % 4
         self._verificar_fim_do_programa()
 
     def executar_ciclo(self):
@@ -218,6 +245,7 @@ class CPU:
         """Retorna um retrato dos sinais e dos componentes para a interface."""
         return {
             "subciclo": self.subciclo,
+            "ultima_etapa_executada": self.ultima_etapa_executada,
             "mpc": self.mpc,
             "mir": self.mir,
             "sinais": dict(self.sinais) if self.sinais is not None else None,
@@ -237,5 +265,6 @@ class CPU:
                 r.identificador: r.valor for r in self.registradores.registradores
             },
             "componentes_ativos": list(self.componentes_ativos),
+            "transferencias": list(self.transferencias),
             "memoria": self.memoria.get_state(),
         }
