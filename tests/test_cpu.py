@@ -92,8 +92,6 @@ def test_jneg_com_ac_negativo(rodar):
     assert r.pc == r.rotulos["ALVO"]
 
 
-@pytest.mark.xfail(reason="a CPU ainda lê a instrução pela cache de dados; "
-                          "a cache de instruções não é usada")
 def test_busca_de_instrucao_usa_a_cache_de_instrucoes(rodar):
     r = rodar("LOCO 1\nLOCO 2\nLOCO 3", 3)
     cache = r.cpu.memoria.cache_instrucoes
